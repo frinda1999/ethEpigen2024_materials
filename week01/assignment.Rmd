@@ -1,0 +1,13 @@
+---
+title: "assignment"
+author: "Ann-Sophie Frind"
+date: "2024-02-23"
+output: html_document
+---
+
+# Assignment 01
+```{r assignment 01}
+library(epiwraps)
+sessionInfo()
+```
+
