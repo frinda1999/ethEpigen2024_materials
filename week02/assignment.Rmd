@@ -1,0 +1,82 @@
+---
+title: "Assignment 02"
+author: "Ann-Sophie Frind"
+date: "2024-03-02"
+output: html_document
+---
+
+# Preparations
+```{r}
+suppressPackageStartupMessages({ # gets rid of printing all the unnecessary info
+  library(AnnotationHub) # to fetch genomes, annotations, etc.
+  library(ensembldb)     # to manipulate ensembl gene annotations
+  library(GenomicRanges) # data structure for genomic ranges 
+  library(epiwraps)      # visualization
+})
+```
+
+# 1 Using AnnotationHub, find and download the following annotations data:
+Info for myself: Ensembl serves as the primary database for storing and accessing genomic annotation data, while EnsDb provides a convenient way to access and work with Ensembl's annotation data within the R programming environment. EnsDb packages leverage the wealth of genomic annotation information available in Ensembl, allowing R users to seamlessly incorporate Ensembl data into their genomic analyses and workflows. EnsDb (Ensembl Annotation Database) is a specific component within the Ensembl project that provides programmatic access to Ensembl's genomic annotation data within the R environment.
+
+## 1.1 The mouse (Mus Musculus) EnsDb object, version 102, genome build GRCm38
+```{r}
+ah <- AnnotationHub() # just shortens the name (?)
+q1 <- query(ah,c("EnsDb", "Mus musculus", "version 102", "GRCm38"))
+q1 # output to find the specific resource ID, --> AH89211
+
+# Download data
+musm <- ah[["AH89211"]] # downloads the according annotation data (number retrieved from q1)
+musm
+```
+## 1.2 The mouse genome sequence ( dna_sm ) in TwoBit/2bit format for GRCm38
+```{r}
+q2 <- query(ah,c("dna_sm", "TwoBit", "GRCm38")) # "dna_sm" = a filter term to search for specific DNA sequences
+q2 # --> newest: AH88477
+
+# download data
+mus2b <- ah[["AH88477"]]
+mus2b
+```
+## 1.3 The drosophila melanogaster genome sequence ( dna_sm ) in TwoBit/2bit format for BDGP6
+```{r}
+q3 <- query(ah,c("dna_sm", "TwoBit", "BDGP6"))
+q3 # --> newest: AH106160
+
+# download data
+dm2b <- ah[["AH106160"]]
+dm2b
+```
+# 2 Using the mouse EnsDb, find the following:
+## 2.1 How many different ensembl gene IDs and gene symbols are there for protein-coding genes?
+```{r}
+g <- genes(musm) # genes() gives a table with gene_id, symbol and other columns
+head(g)
+
+# create table from g with only protein-coding entries
+pcg <- g[which(g$gene_biotype=="protein_coding")]
+length(pcg) # --> 22287
+
+# choose only unique entries
+uniqueID <- unique(pcg$gene_id) # no double ID!
+uniquieSymbol <- unique(pcg$symbol) # no double symbols!
+
+# Counting according entries
+length(uniqueID) # --> 22287
+length(uniquieSymbol) # --> 21964
+```
+## 2.2 Plot the distribution of the (spliced) length of protein-coding transcripts
+Info for myself: e.g. "100 transcripts sind 200 nucleotides lang, 53 sin nur 120 nucleotides lang, etc."
+(tip: this will require you to extract exons of protein-coding transcripts from the database, and split them by transcript, before summing the width of the exons of each transcript)
+```{r}
+exsPerTx <- exonsBy(musm, column=c("tx_id","tx_biotype"),
+                    filter=TxBiotypeFilter("protein_coding"))
+head(exsPerTx)
+
+lengthexsPerTx <- width(exsPerTx) # returns lengths of exons per transcript
+head(lengthexsPerTx)
+
+lengthPerTx <- sum(lengthexsPerTx) # sum them up
+head(lengthPerTx)
+
+hist(lengthPerTx, breaks = 50, xlim = c(0, 40000), main = "Distribution of (spliced) Lengths of Protein-Coding Transcripts", xlab = "Spliced Length", ylab = "Frequency")
+```
