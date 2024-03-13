@@ -1,0 +1,139 @@
+---
+title: "Week 03 - Assignment"
+author: "Ann-Sophie Frind"
+date: "2024-03-10"
+output: html_document
+---
+# Preparations
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub) # retrieve genomes and annotations
+  library(Rsubread) # handles alignment
+  library(rtracklayer) # import, export files
+  library(Biostrings) # handle seqences
+  library(Rfastp) # read trimming & qc
+  library(epiwraps) # visualization
+})
+ah <- AnnotationHub()
+# if on renku, use ah <- AnnotationHub(cache="ahcache")
+```
+
+# Background (for myself)
+Chip-seq (ChIP-sequencing) is a powerful experimental technique used in molecular biology to study protein-DNA interactions. The term "ChIP" stands for Chromatin Immunoprecipitation. Immunoprecipitation (IP) is a laboratory technique used to isolate a specific protein or complex of proteins from a complex mixture of proteins. It relies on the use of antibodies to selectively bind to the protein of interest, followed by precipitation of the antibody-protein complex, which can then be isolated and analyzed.
+
+ChIP-seq combines chromatin immunoprecipitation (ChIP) with high-throughput sequencing to identify regions of the genome that are bound by specific proteins, such as transcription factors or histone modifications.
+
+Here's an overview of the process:
+
+ChIP (Chromatin Immunoprecipitation): In this step, cells are fixed and their chromatin (DNA and associated proteins) is cross-linked. Then, a specific antibody is used to immunoprecipitate the protein of interest along with the DNA fragments it is bound to. This results in a mixture of DNA fragments that are bound by the protein and DNA fragments that are not bound.
+Sequencing Library Preparation: The immunoprecipitated DNA fragments are purified and converted into a sequencing library. This involves processes such as end repair, A-tailing, adapter ligation, and PCR amplification.
+
+Sequencing: The sequencing library is then sequenced using high-throughput sequencing technologies, such as Illumina sequencing. This generates millions of short DNA sequence reads.
+
+Data Analysis: The sequence reads are aligned to a reference genome using bioinformatics tools and software. This allows researchers to determine the genomic locations of the DNA fragments that were bound by the protein of interest.
+
+Peak Calling: After alignment, bioinformatics tools are used to identify regions of the genome that show significant enrichment of sequence reads compared to background levels. These regions are referred to as "peaks" and represent the genomic regions where the protein of interest is bound.
+
+Functional Analysis: Once peaks have been identified, researchers can perform downstream analyses to gain insights into the biological function of the protein-DNA interactions. This may involve annotating peaks with nearby genes, identifying enriched transcription factor binding motifs, or studying the relationship between protein binding and gene expression.
+ChIP-seq data can provide valuable insights into various biological processes, including gene regulation, chromatin structure, and epigenetic modifications. It is widely used in fields such as genetics, genomics, developmental biology, and cancer research to study the interactions between proteins and DNA at a genome-wide scale.
+
+# 1 Download 
+Download the following Drosophila ChIP-seq for the protein CTCF:
+https://www.encodeproject.org/files/ENCFF127RRR/@@download/ENCFF127RRR.fastq.gz
+(no input control for the purpose of this exercise)
+Note for myself: it is recommended to download it via programming.
+```{r, eval=FALSE}
+# increasing download timeout
+options(timeout=3600) 
+
+# creating a directory (=folder) on my laptop
+dir.create("raw")
+
+# downloading and storing in previously created folder
+download.file("https://www.encodeproject.org/files/ENCFF127RRR/@@download/ENCFF127RRR.fastq.gz", dest="raw/Myc.fastq.gz", mode = "wb")
+download.file("https://www.encodeproject.org/files/ENCFF127RRR/@@download/ENCFF127RRR.fastq.gz", dest="raw/input.fastq.gz", mode="wb") # dest = destination, where to save
+```
+
+# 2 Process it from the raw data, obtaining:
+## 2.1 .bam file
+To obtain .bam files, the raw reads in .fastq.gz format (which we downloaded in the step before) need to be first quality controles (QC) and trimmed. Then they are aligned with a reference genome. We save the compressed .sam --> .bam files.
+```{r}
+# QC and Trimming using R and Rfastp
+
+## Creating a new directory/folder
+dir.create("rfastp.trimmed")
+
+## Creating a list to save the loop
+fastq_files <- c(Myc="raw/Myc.fastq.gz", input="raw/input.fastq.gz")
+
+## Using the "apply" function family to apply a function on the values on our list 
+qc <- lapply(c(Myc="raw/Myc.fastq.gz", input="raw/input.fastq.gz"), # specifies the input
+             FUN=function(x){ # specifies what function is applied to the input
+  Rfastp::rfastp(x, thread=4, overrepresentationAnalysis=TRUE,
+                 outputFastq=file.path("rfastp.trimmed/",gsub("\\.fastq\\.gz$","",basename(x))))
+})
+
+## Show the generated QC plots in R
+# Rfastp::curvePlot(qc$Myc, curve="content_curves")
+```
+```{r, eval=FALSE}
+# Alignment
+
+## Building a genome index for mapping (only needs to be done once for a genome)
+## --> The index represents the reference genome and allows for fast searching and alignment of short reads.
+
+### we get the reference genome sequence of drosophila melanogaster from AnnotationHub "fetch"
+genome <- ah[["AH49674"]]
+
+### we create a new directory that will contain the reference genome index
+dir.create("BDGP6_genome")
+
+### we write the genome sequence in fasta format
+export(import.2bit(genome), "BDGP6_genome/genome.fasta.gz", compress=TRUE)
+
+### we build a Rsubread index
+Rsubread::buildindex("BDGP6_genome/rsubread", reference="BDGP6_genome/genome.fasta.gz")
+```
+
+```{r}
+## Again creating a folder to save the stuff in
+dir.create("aligned")
+
+## Align with reference genome sequence
+align.stats <- Rsubread::align(index="BDGP6_genome/rsubread", type="dna",
+                               readfile1=c("rfastp.trimmed/Myc_R1.fastq.gz", 
+                                           "rfastp.trimmed/input_R1.fastq.gz"),
+                               output_file=c("aligned/Myc.bam","aligned/input.bam"),
+                               nthreads=6, sortReadsByCoordinates=TRUE) # threads depend on your computer --> threads - 1
+# find out how many threads my computer has
+parallel::detectCores() # I have 8
+
+## print
+align.stats
+```
+## 2.2 Peaks
+For that MACS3 was recommended, which has to be installed first (e.g. via pip). That didn't work so I used the R alternative.
+```{r}
+peaks <- callPeaks("aligned/Myc.bam", fragLength=50L)
+# if we want to save it as a bed file:
+rtracklayer::export.bed(peaks, "peaks/peaks.bed")
+```
+
+# 3 Report:
+## 3.1 How many reads (and what percentage) were mapped
+Info for myself: = How many were aligned? The number of reads that successfully align to the reference genome is an important metric in ChIP-seq analysis.
+Total_reads	  3816990	
+Mapped_reads	3504769	
+--> Solution: 3504769 reads were mapped. Considering we started with 3816990, that is a percentage of 91.8%. 
+## 3.2 How many peaks were found
+Info for myself: A "peak" typically refers to a region of the genome where there is an enrichment of ChIP-seq reads, suggesting a binding event for the protein of interest (e.g., a transcription factor or histone modification). 1619 with FDR<0.05: Among the 2857 identified regions, 1619 regions have a False Discovery Rate (FDR) of less than 0.05.A lower FDR value indicates a higher confidence level in the identified peaks.
+"Reporting 2857 regions, 1619 with FDR<0.05."
+--> Solution: 2857 peaks were found (with an FDR < 0.05)
+## 3.3 Plot the signal around one of the peaks that is located inside a gene.
+```{r}
+head(peaks)
+plotSignalTracks(c(Myc="aligned/Myc.bam", Input="aligned/input.bam"), 
+                 region=peaks[6],
+                 extend=1000) 
+```
+
