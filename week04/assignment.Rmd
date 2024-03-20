@@ -1,0 +1,118 @@
+---
+title: "Week 04 - Assignment"
+author: "Ann-Sophie Frind"
+date: "2024-03-18"
+output:
+  html_document: default
+  pdf_document: default
+---
+# Preparations
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(rtracklayer)
+  library(epiwraps)
+  library(GenomicRanges)
+})
+ah <- AnnotationHub()
+```
+# Find and download from ENCODE the peaks (i.e. bed-like format) for the following in mouse embryonic stem cells (mESC) : 
+This time we work with already aligned reads and peaks. 
+Info for myself: All the following data was obtained from the Bruce4 ES-Bruce4 cell line. It refers to a specific mouse embryonic stem (ES) cell line named after the Bruce4 strain. Mouse ES cells are derived from the inner cell mass of blastocyst-stage embryos and are capable of self-renewal and differentiation into various cell types.
+How to overlap stuff (from ChatGPT):
+Apparently your need to create GRanges objects from the BED data to perform the overlap.
+
+## 1 Transcription factor p300
+Info for myself: p300 is the same as EP300
+Website: https://www.encodeproject.org/experiments/ENCSR000CCD/
+Reference epigenome: ENCSR343RKY
+```{r}
+# download
+download.file("https://www.encodeproject.org/files/ENCFF460EOA/@@download/ENCFF460EOA.bed.gz", "TFp300")
+
+# save peaks as GRanges object to find overlaps later
+p300_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/TFp300", header = FALSE)
+p300_gr <- GRanges(seqnames = p300_peaks$V1,
+                   ranges = IRanges(start = p300_peaks$V2, end = p300_peaks$V3))
+```
+## 2 Histone modifications 
+### 2.1 H3K4me3
+Website: https://www.encodeproject.org/experiments/ENCSR000CBG/
+Reference epigenome: ENCSR343RKY 
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF247GVM/@@download/ENCFF247GVM.bed.gz", "H3K4me3")
+H3K4me3_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K4me3", header = FALSE)
+
+# create GRanges object
+H3K4me3_gr <- GRanges(seqnames = H3K4me3_peaks$V1,
+                      ranges = IRanges(start = H3K4me3_peaks$V2, end = H3K4me3_peaks$V3))
+# find overlaps
+p300overlapsH3K4me3 <- findOverlaps(p300_gr, H3K4me3_gr)
+
+# get proportion
+proportion_H3K4me3 <- length(p300overlapsH3K4me3)/length(p300_gr)*100
+print(paste("Proportion of p300 peaks overlapping with H3K4me3 peaks:", proportion_H3K4me3, "%"))
+```
+### 2.2 H3K4me1
+Website: https://www.encodeproject.org/experiments/ENCSR000CBF/
+Reference epigenome: ENCSR343RKY
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF333IJH/@@download/ENCFF333IJH.bed.gz", "H3K4me1")
+H3K4me1_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K4me1", header = FALSE)
+
+# create GRanges object
+H3K4me1_gr <- GRanges(seqnames = H3K4me1_peaks$V1,
+                      ranges = IRanges(start = H3K4me1_peaks$V2, end = H3K4me1_peaks$V3))
+# find overlaps
+p300overlapsH3K4me1 <- findOverlaps(p300_gr, H3K4me1_gr)
+
+# get proportion
+proportion_H3K4me1 <- length(p300overlapsH3K4me1)/length(p300_gr)*100
+print(paste("Proportion of p300 peaks overlapping with H3K4me1 peaks:", proportion_H3K4me1, "%"))
+```
+### 2.3 H3K27ac
+Website: https://www.encodeproject.org/experiments/ENCSR000CDE/
+Reference epigenome: ENCSR343RKY 
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF360VIS/@@download/ENCFF360VIS.bed.gz", "H3K27ac")
+H3K27ac_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K27ac", header = FALSE)
+
+# create GRanges object
+H3K27ac_gr <- GRanges(seqnames = H3K27ac_peaks$V1,
+                      ranges = IRanges(start = H3K27ac_peaks$V2, end = H3K27ac_peaks$V3))
+# find overlaps
+p300overlapsH3K27ac <- findOverlaps(p300_gr, H3K27ac_gr)
+
+# get proportion
+proportion_H3K27ac <- length(p300overlapsH3K27ac)/length(p300_gr)*100
+print(paste("Proportion of p300 peaks overlapping with H3K27ac peaks:", proportion_H3K27ac, "%"))
+```
+### 2.4 H3K27me3
+Website: https://www.encodeproject.org/experiments/ENCSR000CFN/
+Reference epigenome: ENCSR343RKY
+```{r}
+download.file("https://www.encodeproject.org/files/ENCFF008XKX/@@download/ENCFF008XKX.bed.gz", "H3K27me3")
+H3K27me3_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K27me3", header = FALSE)
+
+# create GRanges object
+H3K27me3_gr <- GRanges(seqnames = H3K27me3_peaks$V1,
+                      ranges = IRanges(start = H3K27me3_peaks$V2, end = H3K27me3_peaks$V3))
+# find overlaps
+p300overlapsH3K27me3 <- findOverlaps(p300_gr, H3K27me3_gr)
+
+# get proportion
+proportion_H3K27me3 <- length(p300overlapsH3K27me3)/length(p300_gr)*100
+print(paste("Proportion of p300 peaks overlapping with H3K27me3 peaks:", proportion_H3K27me3, "%"))
+```
+### 2.5 Summary
+```{r}
+print(paste("Proportion of p300 peaks overlapping with H3K4me3 peaks:", proportion_H3K4me3, "%"))
+print(paste("Proportion of p300 peaks overlapping with H3K4me1 peaks:", proportion_H3K4me1, "%"))
+print(paste("Proportion of p300 peaks overlapping with H3K27ac peaks:", proportion_H3K27ac, "%"))
+print(paste("Proportion of p300 peaks overlapping with H3K27me3 peaks:", proportion_H3K27me3, "%"))
+```
+# Notes
+(when there are replicates, we recommend using the bed file denoted as “conservative IDR thresholded peaks”)
+
+--> doe they need to have the same reference genome?
+--> do they need to be of the same strain?
