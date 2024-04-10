@@ -1,0 +1,108 @@
+---
+title: "Week 05 - Assignment"
+author: "Ann-Sophie Frind"
+date: "2024-03-25"
+output: html_document
+---
+# Praparations
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+  library(rtracklayer)
+  library(ggplot2)
+})
+ah <- AnnotationHub(localHub=TRUE)
+ensdb <- ah[["AH89211"]]
+
+# Prerequisites
+BiocManager::install("ETHZ-INS/epiwraps") # Update
+ options(timeout=1800)
+download.file("https://ethz-ins.org/content/p300_subset.zip", "p300_subset.zip") # download
+```
+
+# 1. Using the peaks you downloaded last week, identify bivalent domains (H3K27me3 + H3K4me3) in mouse embryonic stem cells (mESC)
+Info for myself: Bivalent domains refer to specific regions of chromatin in the genome that possess both activating (H3K4me3) and repressive (H3K27me3) histone modifications (= histone marks). These domains are often found in gene regulatory regions, particularly in embryonic stem cells (ESCs), where they play a crucial role in maintaining pluripotency while allowing for lineage-specific gene expression upon differentiation.
+For the assignment I select the peaks from H3K4me3 overlapping with H3K27me3 peaks. Afterwards, I Identify regions where peaks from both modifications overlap. Then I filter and analyze the overlapping regions as bivalent domains.
+
+```{r}
+# Read the BED files
+H3K27me3_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K27me3", header = FALSE)
+H3K4me3_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 04/H3K4me3", header = FALSE)
+
+# Create GRanges objects for each BED file
+H3K27me3_gr <- GRanges(seqnames = H3K27me3_peaks$V1,
+                       ranges = IRanges(start = H3K27me3_peaks$V2, end = H3K27me3_peaks$V3))
+H3K4me3_gr <- GRanges(seqnames = H3K4me3_peaks$V1,
+                      ranges = IRanges(start = H3K4me3_peaks$V2, end = H3K4me3_peaks$V3))
+
+# find overlaps
+mESC_H3K4me3_indices <- overlapsAny(H3K4me3_gr, H3K27me3_gr)
+
+# Extract indices of H3K4me3 peaks that overlap with H3K27me3 peaks
+# H3K4me3_indices <- subjectHits(overlaps_mESC)
+
+# create a GRanges object only containing the overlaps
+bivalent_domains_mESC <- H3K4me3_gr[mESC_H3K4me3_indices]
+head(bivalent_domains_mESC)
+length(bivalent_domains_mESC)
+```
+
+# 2. Question: what happens to those regions upon differentiation?
+## 2.1. Choose one differentiated cell type (e.g. hepatocytes, neural progenitor, or smooth muscle cells)
+I chose hepatocytes. Mus musculus strain B6NCrl liver tissue embryo (12.5 days). Reference genome: ENCSR192PSV. Unfortunately I could not find any ChIP-seq data from differentiated cells with the same reference epigenome as last week (ENCSR343RKY).
+
+## 2.2. Download the H3K27me3 and H3K4me3 peaks from this cell type
+```{r}
+# H3K27me3
+# website: https://www.encodeproject.org/experiments/ENCSR642ZLN/
+# Reference Epigenome: ENCSR192PSV
+download.file("https://www.encodeproject.org/files/ENCFF290NCY/@@download/ENCFF290NCY.bed.gz", "H3K27me3_diff")
+H3K27me3_hep_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 05/H3K27me3_diff", header = FALSE)
+
+## create GRanges object
+H3K27me3_hep_gr <- GRanges(seqnames = H3K27me3_hep_peaks$V1,
+                      ranges = IRanges(start = H3K27me3_hep_peaks$V2, end = H3K27me3_hep_peaks$V3))
+
+# H3K4me3
+# website: https://www.encodeproject.org/experiments/ENCSR471SJG/
+# Reference Epigenome: ENCSR192PSV
+download.file("https://www.encodeproject.org/files/ENCFF459HSF/@@download/ENCFF459HSF.bed.gz", "H3K4me3_diff")
+H3K4me3_hep_peaks <- read.table("/Users/ann-sophiefrind/Library/CloudStorage/OneDrive-ETHZurich/ETH/Master/2. Semester/Bioinformatic Approaches to Regulatory Genomics and Epigenomics/Week 05/H3K4me3_diff", header = FALSE)
+
+## create GRanges object
+H3K4me3_hep_gr <- GRanges(seqnames = H3K4me3_hep_peaks$V1,
+                      ranges = IRanges(start = H3K4me3_hep_peaks$V2, end = H3K4me3_hep_peaks$V3))
+## find overlaps
+bivalent_domains_mESC_hep_indices <- overlapsAny(H3K4me3_hep_gr, H3K27me3_hep_gr) # order matters
+
+# create a GRanges object from it
+bivalent_domains_mESC_hep <- H3K4me3_hep_gr[bivalent_domains_mESC_hep_indices]
+head(bivalent_domains_mESC_hep)
+```
+## 2.3 How many of the mESC bivalent domains are, in this differentiated cell type, overlapping 
+### 2.3.1 either mark
+```{r}
+# find bivalent domains (= bivalent_domains_mESC) overlapping with H3K27me3 of differentiated cell type (= H3K27me3_hep_gr)
+biv_H3K27me3 <- overlapsAny(bivalent_domains_mESC, H3K27me3_hep_gr)
+head(biv_H3K27me3)
+print(paste(sum(biv_H3K27me3), "domains overlap with the H3K27me3 mark of a differentiated hepatocyte")) # sum() treat "TRUE" as 1 and adds them up
+
+# find bivalent domains overlapping with H3K4me3 of differentiated cell type (= H3K4me3_hep_gr)
+biv_H3K4me3 <- overlapsAny(bivalent_domains_mESC, H3K4me3_hep_gr)
+head(biv_H3K4me3)
+print(paste(sum(biv_H3K4me3), "domains overlap with the H3K4me3 mark of a differentiated hepatocyte"))
+```
+
+### 2.3.2 their combination (in this differentiated cell type)?
+
+```{r}
+# find bivalent domains (= bivalent_domains_mESC) overlapping with both H3K27me3 and H3K4me3 of differentiated cell type (= bivalent_domains_mESC_hep)
+both_both <- overlapsAny(bivalent_domains_mESC, bivalent_domains_mESC_hep)
+print(paste(sum(both_both), "domains overlap with the both marks of a differentiated hepatocyte"))
+```
+# Conclusion
+The question was "what happens to those regions upon differentiation?". These bivalent domains are characterized by the coexistence of repressive (H3K27me3) and activating (H3K4me3) histone modifications within the same genomic regions. The results cannot be readily interpreted, as I could not find the data with the same reference epigenome. But in general, the regions that have both histone marks in the mESC genome show a decrease of these histone marks in the differentiated cell's genome. 
+The conversion of bivalent regions to either active or repressive chromatin states in differentiated cells may reflect lineage-specific gene expression programs. During differentiation, cells undergo lineage specification, where they activate lineage-specific genes and repress genes associated with alternative lineages. 
