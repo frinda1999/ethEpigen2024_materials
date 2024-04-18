@@ -1,0 +1,106 @@
+---
+title: "Assignment - Lecture 06"
+author: "Ann-Sophie Frind"
+date: "2024-04-16"
+output: html_document
+---
+# Preparations
+```{r Preparations}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(ggplot2)
+  # library(memes) # for the meme-based methods -- COMMENT OUT when using alternatives
+  library(motifmatchr) # for scanning sequences for matches of given motifs
+  library(Biostrings) # for handling sequences
+  library(MotifDb) # database of motifs
+  library(TFBSTools) # for handling some motif formats
+  library(universalmotif) # for converting motifs to various formats
+  library(PWMEnrich) # for R-based motif enrichment analysis (position weight motive (see slides: graph with nucleotide letters))
+})
+```
+
+# 1. Choose a transcription factor, e.g. CREB1, REST, GATA5, EGR1, GCR and download the peaks for that factor
+(whatever organism/cell type, just make sure you use the corresponding genome!)
+I chose REST. It is a transcriptional repressor that regulates neuronal gene expression. It acts by binding to a specific DNA sequence known as the RE1 (repressor element 1) site, thereby silencing the expression of neuronal genes in non-neuronal cells. REST is crucial for maintaining neuronal identity and function.
+### Notes
+
+* The genomes have to be the same. The first genome is the one the peaks were aligned to. The second one is the genome that we align the motifs to. 
+
+* Pay attention to the chromosome naming convention. ENCODE data uses the UCSC convention, which means that chromosome gets named "chr4". The Ensembl convention instead calls it just "4". So if we tried to overlap stuff between these two systems, we wouldn't find anything.
+Fortunately, you can change the naming convention of most objects (e.g. GenomicRanges) in R, using for instance seqlevelsStyle(x) <- "ensembl" to force a GRanges (e.g. of your peaks) to use the ensembl convention.
+
+* The peaks stem from human in vitro differentiated cells (hIVD)).
+Link: https://www.encodeproject.org/experiments/ENCSR000BTV/
+
+```{r TF download}
+# Download
+download.file("https://www.encodeproject.org/files/ENCFF138KSX/@@download/ENCFF138KSX.bed.gz", "hIVD_REST.bed.gz")
+
+# Import the data in the right format
+peaks <- rtracklayer::import("hIVD_REST.bed.gz", format="NarrowPeak")
+
+# Change the convention of the chromosome names to ensembl (i.e. without 'chr')
+seqlevelsStyle(peaks) <- "Ensembl" # to change the convention
+REST_peaks_chr1 <- peaks[seqnames(peaks)=="1"]# less data
+head(REST_peaks_chr1)
+```
+```{r TF reference genome}
+ah <- AnnotationHub()
+
+q <- AnnotationHub::query(ah, c("TwoBit", "GRCh38")) # Here an error messages occurred: the function "query()" is used by different packages, so you have to specify the package (AnnotationHub).
+q # I chose one of the the bottom ones = the newest (?)
+genome <- ah[["AH106283"]]
+
+# we'll load it into memory:
+genome_seqs <- import(genome)
+
+# if your genome was a fasta file instead, import using Biostrings::readDNAStringSet()
+```
+
+# 2. Identify the instances of the factor’s motif
+Often motifs indicate sequence-specific binding sites for proteins such as nucleases and transcription factors (TF).
+```{r Motif Identification}
+# we search for "REST" in the motif database
+motifs <- query(MotifDb, "REST")
+# there are several matching motifs:
+names(motifs)
+# we select one:
+REST_motif <- motifs[["Hsapiens-HOCOMOCOv10-REST_HUMAN.H10MO.A"]]
+# we visualize it:
+view_motifs(REST_motif)
+```
+
+# 3. Answer the following questions:
+The matchMotifs() function takes motifs (motif2), genomic sequences (subject), and a reference genome (genome) as input and *returns the positions of the matched motifs within the genomic sequences*. This can be useful for identifying potential binding sites for transcription factors or other DNA-binding proteins within genomic regions of interest.
+**I also always got the error message in this chunk "Error in value[[3L]](cond) : 
+   record 3 (1:204837492-204837830) was truncated
+  file: genome.fa", and therefore couldn't get/check results**
+  
+```{r Converting the Motif, eval=FALSE}
+# if you don't already have the genome in fasta format saved somewhere, convert it to that format:
+Biostrings::writeXStringSet(genome_seqs, "genome.fa")
+# We also need to convert the motif to a format that this package (motifmatchr) will accept
+motif2 <- convert_motifs(REST_motif, class="TFBSTools-PWMatrix")
+moi <- motifmatchr::matchMotifs(motif2, subject=REST_peaks_chr1, genome=Rsamtools::FaFile("genome.fa"), out="positions") 
+# specify that we want the function to return the genomic position of each motif match
+moi <- moi[[1]] # we scanned for just one motif, so we get the results for that motif
+head(moi)
+```
+## 3.1. Of all the peaks, what proportion contains a motif for the factor?
+Expected form of an answer: of the XX peaks, XX (XX%) contain a motif
+```{r Proportion Peaks with Motif, eval=FALSE}
+peaks_with_motif <- overlapsAny(REST_peaks_chr1, moi)
+proportion_with_motif <- sum(peaks_with_motif) / length(REST_peaks_chr1) * 100
+print(paste("Of the", length(REST_peaks_chr1),"REST peaks,", sum(peaks_with_motif), "(", proportion_with_motif, "%) contain a motif." ))
+```
+Often motifs indicate sequence-specific binding sites for proteins such as nucleases and transcription factors (TF).
+
+## 3.2. Of all instances of that motif in the genome (or in one chromosome), what proportion is bound by the factor (i.e. has a peak)?
+Expected form of an answer: of the XX motif instances, XX (XX%) overlap a peak
+```{r Proportion Motif with Peak, eval=FALSE}
+motif_with_peaks <- overlapsAny(moi, REST_peaks_chr1)
+proportion_with_peak <- sum(motif_with_peaks) / length(moi) * 100
+print(paste("Of the", length(moi),"instances of the chosen motif,", sum(motif_with_peaks), "(", proportion_with_peak, "%) is bound by the transcription factor REST." ))
+```
