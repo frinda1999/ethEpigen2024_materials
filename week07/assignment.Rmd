@@ -1,0 +1,173 @@
+---
+title: "Assignment - Lecture 07"
+author: "Ann-Sophie Frind"
+date: "2024-04-21"
+output: html_document
+---
+
+```{r Packages}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(AnnotationHub)
+  library(MotifDb)
+# library(memes)
+  library(universalmotif)
+  library(ensembldb)
+  library(ggplot2)
+# library(magick)
+})
+# update epiwraps
+BiocManager::install("ETHZ-INS/epiwraps")
+
+ah <- AnnotationHub(localHub=TRUE)
+ensdb <- ah[["AH89211"]] # mouse ensembldb object
+```
+
+# Preparations
+
+ATAC-seq (Assay for Transposase-Accessible Chromatin using sequencing) is a cutting-edge technique used in molecular biology and genomics to study **chromatin accessibility**. It works by using a hyperactive **Tn5** transposase enzyme to insert sequencing adapters into accessible regions of chromatin. This enzyme preferentially targets regions of open chromatin, such as active promoters, enhancers, and regulatory elements. The DNA fragments with inserted adapters are then amplified and sequenced. ATAC-seq is a powerful tool to investigate gene regulation and chromatin dynamics.
+
+## Download the data
+
+The BAM file (.bam) contains the aligned sequencing reads and associated data, while the BAM index file (.bam.bai) is used to facilitate fast retrieval of reads from specific genomic regions within the BAM file. Together, they form a critical pair for storing and accessing sequence alignment data efficiently.
+
+```{r, eval=FALSE}
+BiocManager::install("ETHZ-INS/epiwraps")
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam", "atac.chr19.bam")
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam.bai", "atac.chr19.bam.bai")
+```
+
+## Preparing tracks
+
+Once you have obtained the data, you need to preprocess it into a format suitable for visualization. This often involves **converting sequencing reads into genome-aligned tracks**, which represent the density of reads at each genomic position. The output are **BigWig files**, a compressed binary format commonly used for storing large genomic data sets. The created tracks can then later be plotted via `signal2Matrix()` and then `plotEnrichedHeatmaps()`. We focus on 2 types of tracks:
+
+-   **Coverage** Track (full_cov.bw): Higher coverage indicates regions with more sequencing reads aligned to them, suggesting regions of higher chromatin accessibility or higher DNA fragment density.
+
+-   **Cuts/Insertion Sites** Track (full_cuts.bw): The number of cuts represents regions where the transposase enzyme used in ATAC-seq has inserted sequencing adapters, indicating regions of open chromatin or nucleosome-free regions.
+
+Since for our exercise we want to plot 1. the insertion (i.e. ‘cuts’) profile of **nucleosome-free fragments** and 2. the centers of **nucleosome-containing fragments** we need to differentiate them. That can be done using the fact that nucleosomes are min. 147 nucleotides long. nucleosome-free: set maxFragLength to less than 147 and for nucleosome-containing: set minFragLength to around 140.
+
+```{r create Tracks}
+bam <- "atac.chr19.bam"
+
+# 1. Create a track using only nucleosome-free fragments, the number of cuts/insertion sites at each position
+epiwraps::bam2bw(bam, output_bw = "NF_cuts.bw", paired=TRUE, binWidth=1L, type="ends", extend=2L, minFragLength=30, 
+       maxFragLength=120, shift=c(4L,-5L), forceSeqlevelsStyle = "Ensembl")
+# Load the insertion profile from the BigWig file
+track_NF_cuts <- rtracklayer::import("NF_cuts.bw")
+
+# 2. Create a track using only the (10bp) centers of mono-nucleosome fragments. Center and extend is to get rid of junk.
+epiwraps::bam2bw(bam, output_bw = "mono_centers.bw", paired=TRUE, binWidth=5L, minFragLength=140, shift=c(4L,-5L), 
+       maxFragLength=220, type="center", extend=10L, forceSeqlevelsStyle = "Ensembl")
+# Load the insertion profile from the BigWig file
+track_mono_centers <- rtracklayer::import("mono_centers.bw")
+```
+
+## Obtaining the sites with motifs (KLF4 and MAZ)
+
+This code retrieves motifs for the transcription factors KLF4 and MAZ, loads genome data, extracts the sequence for chromosome 19, and then identifies motif matches for KLF4 and MAZ within the sequence of chromosome 19. The matches are then stored as GRanges objects for further analysis.
+Try: p53
+
+```{r}
+# get KLF4 motif
+motif <- MotifDb::query(MotifDb, c("KLF4","Mus"))[[1]]
+motif_KLF4 <- convert_motifs(motif, class="TFBSTools-PFMatrix")
+
+# get MAZ motif
+motif <- MotifDb::query(MotifDb, c("MAZ","Mus"))[[1]]
+motif_MAZ <- convert_motifs(motif, class="TFBSTools-PFMatrix")
+
+genome <- ah[["AH68356"]]
+# get the sequence for chr19:
+chr19 <- import(genome)["19"]
+
+# find motif matches of KLF4 across chr19
+moi_KLF4 <- motifmatchr::matchMotifs(motif_KLF4, chr19, out="positions", p.cutoff=1e-5)[[1]]
+# convert to GRanges
+moi_KLF4 <- as(setNames(moi_KLF4,names(chr19)), "GRanges")
+
+# find motif matches of MAZ across chr19
+moi_MAZ <- motifmatchr::matchMotifs(motif_MAZ, chr19, out="positions", p.cutoff=1e-5)[[1]]
+# convert to GRanges
+moi_MAZ <- as(setNames(moi_MAZ,names(chr19)), "GRanges")
+```
+
+# Plots
+
+In the same dataset of ATAC on chr19, plot 1) the insertion (i.e. ‘cuts’) profile of nucleosome-free fragments and 2) the centers of nucleosome-containing fragments, around the high-confidence motifs of two factors. Each plot contains
+
+-   The insertion (i.e. ‘cuts’) profile of nucleosome-free fragments
+
+-   The centers of nucleosome-containing fragments, around the high-confidence motifs of two factors You can choose your own factors of interest, or for instance use KLF4 and MAZ. Expected form of the answer: 2 figures (one for each factor), each containing the two signals around the motifs
+
+The signal2Matrix function extracts signals around motif occurrences from multiple tracks and combines them into a single matrix (sm). **Renormalizing** the signals using a background normalization ensures that the signals from different tracks are **comparable** and that any differences observed are due to biological factors rather than technical artifacts or experimental variability.
+
+### KLF4
+
+KLF4, or Krüppel-like factor 4, is a transcription factor that regulates important cellular processes such as cell growth, differentiation, and tissue repair. It plays roles in controlling cell proliferation, influencing embryonic development, and contributing to immune regulation. Dysregulation of KLF4 is associated with various diseases, including cancer. Overall, KLF4 is a key player in maintaining tissue integrity and function in health and disease.
+
+```{r KLF4}
+# we prepare the list of tracks
+tracks_KLF4 <- c("NF cuts"="NF_cuts.bw", "Mono centers"="mono_centers.bw")
+
+# extract signals around the motif occurences
+# we zoom in to 300bp around the motif centers, in windows of 5bp
+sm_KLF4 <- signal2Matrix(tracks_KLF4, moi_KLF4, w=5, extend=300)
+
+# plot the signals:
+# plotEnrichedHeatmaps(sm_KLF4, trim=0.95, use_raster = FALSE) # not the proper way
+
+# background normalization
+# this we can do for instance using:
+nf_KLF4 <- getNormFactors(tracks_KLF4, useSeqLevels="19", nwind=5000L)
+# then we apply the normalization factors:
+sm_KLF4 <- renormalizeSignalMatrices(sm_KLF4, scaleFactors = nf_KLF4)
+# and plot it
+plotEnrichedHeatmaps(sm_KLF4, trim=0.95, minRowVal = 12, colors = c("white","darkred"), use_raster = FALSE)
+```
+A way to concentrate on the more interesting part of the heatmap and make it faster is by **subsetting**. That is done by selecting the top e.g. 1000 regions with the highest average enriched scores from the matrix of enriched scores (sm) and storing them in a new matrix called e.g. sm.top.
+
+```{r}
+# we subset to the top 1000 regions:
+sm.top_KLF4 <- head(sm_KLF4[order(rowMeans(as.matrix(assays(sm_KLF4)$enriched_score))),], 1000)
+sm.top_KLF4
+plotEnrichedHeatmaps(sm.top_KLF4, trim=0.95, colors = c("white","darkred"), use_raster = FALSE) # delete minRowVal = 12, 
+```
+
+### MAZ
+
+MAZ (Myc-associated zinc finger protein) is a transcription factor involved in diverse cellular processes. It regulates gene expression related to cell proliferation, apoptosis, and differentiation. MAZ plays roles in embryonic development, immune regulation, and cancer progression. Its functions vary depending on the cellular context, making it a versatile regulator of gene expression in health and disease.
+
+```{r MAZ}
+# we prepare the list of tracks
+tracks_MAZ <- c("NF cuts"="NF_cuts.bw", "Mono centers"="mono_centers.bw")
+
+# extract signals around the motif occurences
+# we zoom in to 300bp around the motif centers, in windows of 5bp
+sm_MAZ <- signal2Matrix(tracks_MAZ, moi_MAZ, w=5, extend=300)
+
+# plot the signals:
+# plotEnrichedHeatmaps(sm_MAZ, trim=0.95, use_raster = FALSE) # not the proper way
+
+# background normalization
+nf_MAZ <- getNormFactors(tracks_MAZ, useSeqLevels="19", nwind=5000L)
+# then we apply the normalization factors:
+sm_MAZ <- renormalizeSignalMatrices(sm_MAZ, scaleFactors = nf_MAZ)
+# and plot it
+plotEnrichedHeatmaps(sm_MAZ, trim=0.95, minRowVal = 12, colors = c("white","darkred"), use_raster = FALSE)
+```
+Subsetting for MAZ did not work for some reason. 
+```{r, eval=FALSE}
+# we subset to the top 1000 regions:
+sm.top_MAZ <- head(sm_MAZ[order(rowMeans(as.matrix(assays(sm_MAZ)$enriched_score))),], 1000)
+sm.top_MAZ
+plotEnrichedHeatmaps(sm.top_MAZ, trim=0.95, colors = c("white","darkred"), use_raster = FALSE) # delete minRowVal = 12, 
+```
+# Summary
+
+What we did was:\
+
+1.  Get the ATAC-data
+2.  Creating tracks that contain the information of interest about the **accessibility** of the DNA (e.g. \# cuts, \# mono-center, etc.)
+3.  Obtaining the **motifs** of interest and align them to the correct genome
+4.  Look at the tracks (signals) around the motif occurrences → plots
