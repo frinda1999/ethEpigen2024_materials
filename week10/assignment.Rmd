@@ -1,0 +1,205 @@
+---
+title: "Assignment - Lecture 10"
+author: "Ann-Sophie Frind"
+date: "2024-05-10"
+output: html_document
+---
+
+# Preparations
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(epiwraps)
+  library(ggplot2)
+  library(rGREAT) # Gene Ontology enrichment among genomic regions
+})
+```
+
+### Download and decompress the following archive:
+
+This contains the bigwig files and peaks (bed) files for three TFs of the CREB family (all restricted to chr1; aligned against the hg38 genome): <https://en.wikipedia.org/wiki/CREB>.\
+The CREB (cAMP Response Element-Binding) family of transcription factors (TFs) includes **CREB**, **CREB3**, and **CREB3L1**. These proteins play crucial roles in regulating gene expression in response to various cellular signals.
+
+-   **CREB1 (cAMP Response Element-Binding protein)**: CREB1 is a key transcription factor activated by phosphorylation through various signaling pathways, including cAMP, calcium, and growth factors. It binds to the cAMP response element (CRE) in DNA to regulate genes involved in neuronal plasticity, survival, and metabolism.
+
+-   **CREB3**: CREB3 is a transcription factor involved in the unfolded protein response (UPR) and cellular stress. Activated by proteolytic cleavage, it regulates genes crucial for ER stress response, lipid metabolism, and cellular homeostasis under stress conditions.
+
+-   **CREB3L1**: CREB3L1 is a transcription factor similar to CREB3, activated by intramembrane proteolysis. It regulates genes involved in the ER stress response, osteoblast differentiation, antiviral response, and cellular adaptation to ER stress, impacting bone formation and antiviral defenses.
+
+```{r, eval=FALSE}
+options(timeout = 6000)
+download.file("https://ethz-ins.org/content/w10.assignment.zip", "w10.assignment.zip")
+unzip("w10.assignment.zip")
+list.files()
+```
+This contains the bigwig files and peaks (bed) files for three TFs of the CREB family (all restricted to chr1; aligned against the hg38 genome). 
+
+# Clustering and Visualization
+
+... to illustrate the relationship between the binding of the different proteins
+
+#### Prepare the regions and the tracks
+
+Reminder:\
+
+- BED Files: These contain information about the **genomic locations** of transcription factor binding sites (peaks). You have BED files for Creb1, Creb3, and Creb3L1.
+
+- bigWig Files: These are used for displaying continuous-valued data in a track format, such as the **binding intensities** of the transcription factors across the genome.
+
+**Tip**: focus on high-confidence peaks (.bed-files) to define the universe of regions.
+
+```{r}
+tracks <- list.files(pattern="bw$") # = binding intensities for all 3 CREBs
+peaks <- list.files(pattern="bed$")
+# we first import the peaks
+peaks <- lapply(peaks, rtracklayer::import.bed)
+
+# we'll focus on the high-quality peaks
+peaks <- lapply(peaks, FUN=function(x) x[x$score>800])
+
+# we get the union of non-redundant regions
+regions <- reduce(unlist(GRangesList(peaks)))
+
+#regions_CREB1 <- rtracklayer::import.bed("Creb1.bed") # = Genomic locations for each CREB
+#regions_CREB3 <- rtracklayer::import.bed("Creb3.bed")
+#regions_CREB3L1 <- rtracklayer::import.bed("Creb3L1.bed")
+```
+
+#### Plot
+
+```{r}
+ese <- signal2Matrix(tracks, regions, extend=2000) # Expression set
+plotEnrichedHeatmaps(ese)
+ese2 <- ese[1:1000,] # select the first 1000 rows from the ese object while keeping all columns
+plotEnrichedHeatmaps(ese2, cluster_rows = TRUE, show_row_dend=TRUE ) # gives activities of different TFs across the same genomic regions
+```
+
+### Clustering
+
+```{r}
+set.seed(123)  # to ensure that it gives the same results everytime
+cl <- clusterSignalMatrices(ese, k=4) # dividing data into k=4 clusters
+table(cl) # states how many items are in each cluster
+head(cl)
+length(cl)
+length(regions)
+
+# to make sure the cluster labels stay associated with the corresponding regions/rows
+# even if we manipulate the object, put them inside the rowData of the object:
+rowData(ese)$cluster <- cl
+head(rowData(ese))
+```
+Clusters 1 and 4 contain the majority of the regions. About 70% of the variability in the dataset is captured by these clusters, suggesting that the clustering effectively reflects significant patterns or relationships in the data. This approach helps identify regions with similar regulatory characteristics or functional roles, which can be crucial for further genomic analysis or biological research.
+
+#### Plotting the clusters:
+
+```{r}
+mycolors <- c("1"="red", "2"="blue", "3"="darkgreen", "4"="black")
+plotEnrichedHeatmaps(ese, row_split="cluster", mean_color=mycolors, colors=c("white","darkred"))
+```
+
+Trying different numbers of clusters:
+
+```{r}
+cl2 <- clusterSignalMatrices(ese, k=2:10)
+ggplot(cl2$varExplained, aes(k, varExplained)) + geom_line()
+```
+
+The graph is useful for guiding decisions on how many clusters to use for further detailed analysis, balancing between too few clusters (oversimplifying the data) and too many clusters (overfitting and complicating the interpretation). Here pivoting points could be set on k=3 or k=5, so I'll stick with k=4. 
+
+Plotting just the averages:
+
+```{r}
+d <- meltSignals(ese, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line(size=1.2) + facet_wrap(~split)
+```
+Clustering using relative signal instead: -------> relevant oder weg damit??
+
+```{r}
+cl <- clusterSignalMatrices(ese, k=4, scaleRows = TRUE)
+d <- meltSignals(ese, splitBy=cl)
+ggplot(d, aes(position, mean, colour=sample)) + geom_line() + facet_wrap(~split)
+plotEnrichedHeatmaps(ese, row_split = cl, scale_rows = "global")
+```
+
+#### Interpretation of clusters
+Collectively the graphs show that all three transcription factors have peaks at the center, that indicates **specific and localized binding sites on the genome**. **Creb1** exhibits a very sharp and intense peak especially in cluster 1, suggesting a **strong and specific binding**, while **Creb3 and Creb3L1** show broader peaks, indicating a **less specific binding pattern** that covers wider genomic regions. This could imply that **Creb1 might have a more dominant or direct gene regulatory role**, and Creb3 and Creb3L1 might modulate gene expression more broadly or cooperatively. The overlapping central peaks also suggest potential **competitive or cooperative** interactions among these factors, possibly affecting the same genomic functions or regulatory pathways.
+
+# Enrichment Analysis
+
+In the *great()* function (Genomic Regions Enrichment of Annotations Tool) the following arguments are specified:
+
+- split_regions[["1"]]: Specifies that the analysis should be performed on the genomic regions in the first cluster.
+
+- gene_sets="GO:BP": Defines the set of gene annotations to test against, in this case, "**B**iological **P**rocess" from the **G**ene **O**ntology.
+
+- tss_source="hg38": Specifies the transcription start site (TSS) source, indicating the genome version (here, human genome build hg38) used to map genomic coordinates.
+
+- background=regions: This should be a variable or argument specifying the background set of genomic regions against which the enrichment is calculated. Here combined relevant regions from CREB1, CREB3, and CREB1L3
+
+- cores=2: Sets the number of processor cores to use for the analysis, which speeds up the computation.
+
+Find what's enriched in one cluster with respect to the others:
+
+### Cluster 1
+
+```{r}
+# we first split the regions by cluster:
+split_regions <- split(rowRanges(ese), rowData(ese)$cluster)
+lengths(split_regions)
+
+res1 <- great(split_regions[["1"]], gene_sets="GO:BP", tss_source="hg38", # "Genomic Regions Enrichment of Annotations Tool"
+             background=regions, cores=2)
+bp1 <- getEnrichmentTables(res1)
+head(bp1)
+```
+
+We plot the top Biological Processes:
+
+```{r, fig.width=9, fig.height=6}
+ggplot(head(bp1,15), aes(fold_enrichment, reorder(description, p_adjust), 
+                        size=observed_region_hits, color=-log10(p_adjust))) + 
+  geom_point() + scale_color_viridis_c()
+```
+
+**Interpretation**\
+The enrichment analysis of cluster 1 shows that **developmental processes**, especially neuronal development, mediated by CREB TFs in the genomic regions of Cluster 1 are most significantly associated with this data set. Considering the graphs from the clustering only, CREB1 had the sharpest peak, which could indicate that it is the most important one here. Also CREB3 had a strong signal in cluster 1, which could indicate a cooperative or maybe even a competitive role in these processes. CREB3L1 seems to have a less important role.
+
+### Cluster 4
+
+```{r}
+# we first split the regions by cluster:
+split_regions <- split(rowRanges(ese), rowData(ese)$cluster)
+lengths(split_regions)
+
+res4 <- great(split_regions[["4"]], gene_sets="GO:BP", tss_source="hg38", 
+             background=regions, cores=2)
+bp4 <- getEnrichmentTables(res4)
+head(bp4)
+```
+
+We plot the top Biological Processes:
+
+```{r, fig.width=9, fig.height=6}
+ggplot(head(bp4,15), aes(fold_enrichment, reorder(description, p_adjust), 
+                        size=observed_region_hits, color=-log10(p_adjust))) + 
+  geom_point() + scale_color_viridis_c()
+```
+
+**Interpretation**\
+The enrichment analysis of cluster 4 shows that the top biological processes all have approximately the same significance, so we can focus more on the enrichment and the region hits. Glycosaminoglycan metabolic processes are enriched most. Amide metabolic processes have most region hits, which also suggests a high relevance. Considering that cluster 4 from the clustering graphs showed the strongest signal for CREB3L1, it might be the most relevant for this set of genes. 
+
+# Results collection
+
+#### Clustering
+Collectively the clustering graphs show that all three transcription factors have peaks at the center, that indicates specific and localized binding sites on the genome. Creb1 exhibits a very sharp and intense peak especially in cluster 1, suggesting a strong and specific binding, while Creb3 and Creb3L1 show broader peaks, indicating a less specific binding pattern that covers wider genomic regions. This could imply that Creb1 might have a more dominant or direct gene regulatory role, and Creb3 and Creb3L1 might modulate gene expression more broadly or cooperatively. The overlapping central peaks also suggest potential competitive or cooperative interactions among these factors, possibly affecting the same genomic functions or regulatory pathways.
+
+#### Enrichment analysis Cluster 1
+The enrichment analysis of cluster 1 shows that **developmental processes**, especially neuronal development, mediated by CREB TFs in the genomic regions of Cluster 1 are most significantly associated with this data set. Considering the graphs from the clustering only, CREB1 had the sharpest peak, which could indicate that it is the most important one here. Also CREB3 had a strong signal in cluster 1, which could indicate a cooperative or maybe even a competitive role in these processes. CREB3L1 seems to have a less important role.
+
+#### Enrichment analysis cluster 4
+The enrichment analysis of cluster 4 shows that the top biological processes all have approximately the same significance, so we can focus more on the enrichment and the region hits. Glycosaminoglycan metabolic processes are enriched most. Amide metabolic processes have most region hits, which also suggests a high relevance. Considering that cluster 4 from the clustering graphs showed the strongest signal for CREB3L1, it might be the most relevant for this set of genes and these biological processes. 
+
+
+
